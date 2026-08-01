@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'rate_provider' => [
+        'url' => env('RATE_PROVIDER_URL'),
+        'cache_ttl_seconds' => (int) env('RATE_CACHE_TTL_SECONDS', 30),
+        'stale_ttl_seconds' => (int) env('RATE_STALE_TTL_SECONDS', 120),
+    ],
+
 ];

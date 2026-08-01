@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**', 'fix/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tupay
+          POSTGRES_PASSWORD: tupay
+          POSTGRES_DB: tupay_testing
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: bcmath, redis, pgsql, pdo_pgsql, mbstring, ctype
+          coverage: none
+          tools: composer:v2
+
+      - uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
+      - run: cp .env.example .env
+      - run: php artisan key:generate
+
+      - name: Run migrations
+        run: php artisan migrate --force
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: tupay_testing
+          DB_USERNAME: tupay
+          DB_PASSWORD: tupay
+          REDIS_CLIENT: predis
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+
+      - name: Pint
+        run: vendor/bin/pint --test
+
+      - name: PHPStan (Larastan)
+        run: vendor/bin/phpstan analyse --memory-limit=1G
+
+      - name: Pest
+        run: vendor/bin/pest --ci
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: tupay_testing
+          DB_USERNAME: tupay
+          DB_PASSWORD: tupay
+          REDIS_CLIENT: predis
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          QUEUE_CONNECTION: sync

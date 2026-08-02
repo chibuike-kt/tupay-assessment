@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\SettlementWebhookController;
 use App\Http\Controllers\Api\SwapController;
 use App\Http\Controllers\Api\TwoFactorChallengeController;
 use Illuminate\Support\Facades\Route;
@@ -11,3 +12,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/swap', SwapController::class)
         ->middleware('elevated:swap');
 });
+
+Route::post('/webhooks/settlement', SettlementWebhookController::class)
+    ->middleware('webhook.signature');

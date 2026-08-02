@@ -1,0 +1,203 @@
+### Tupay API Test Collection
+### VS Code REST Client format (also importable into Postman as raw HTTP).
+###
+### AUTOMATED via REST Client's response-chaining: login token, EAT.
+### MANUAL, unavoidably: TOTP codes (30s rotation, needs a real TOTP
+### algorithm run) and webhook HMAC signatures (needs a real HMAC-SHA256
+### call). Neither REST Client nor a static .http file can compute these —
+### there's no scripting/crypto engine here, unlike Postman's pre-request
+### scripts. Generate both externally right before the request that needs
+### them (commands given inline below).
+###
+### Prerequisites:
+###   docker compose up -d
+###   php artisan serve --port=8000
+###   php artisan serve --port=8001
+###   php artisan migrate:fresh --seed   (copy TOTP secret + wallet IDs below)
+
+@baseUrl = http://localhost:8000/api
+@email = demo@tupay.dev
+@password = password
+@totpSecret = REPLACE_WITH_SEEDER_OUTPUT
+@ngnWalletId = REPLACE_WITH_SEEDER_OUTPUT
+@cnyWalletId = REPLACE_WITH_SEEDER_OUTPUT
+@webhookSecret = another-random-local-dev-string
+
+### ============================================================
+### 1. LOGIN
+### ============================================================
+
+# @name login
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### ============================================================
+### 2. STEP-UP 2FA — CHALLENGE-THEN-SWAP FLOW
+### ============================================================
+### Generate a fresh TOTP code right before running request 2.1:
+###   php artisan tinker --execute="echo (new PragmaRX\Google2FA\Google2FA())->getCurrentOtp('{{totpSecret}}');"
+
+@totpCode = REPLACE_WITH_FRESH_TOTP_CODE
+
+# @name challenge
+POST {{baseUrl}}/2fa/challenge
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+
+{
+  "totp_code": "{{totpCode}}",
+  "action": "swap",
+  "action_payload": {
+    "source_wallet_id": {{ngnWalletId}},
+    "destination_wallet_id": {{cnyWalletId}},
+    "amount_subunits": 50000
+  }
+}
+
+### 2.2 Execute the swap — EAT chained automatically from 2.1's response.
+### Must run within 60 seconds of 2.1.
+POST {{baseUrl}}/swap
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+X-Elevated-Action-Token: {{challenge.response.body.elevated_action_token}}
+
+{
+  "source_wallet_id": {{ngnWalletId}},
+  "destination_wallet_id": {{cnyWalletId}},
+  "amount_subunits": 50000
+}
+
+### ============================================================
+### 3. INVALID TOKEN / STEP-UP FAILURE CASES
+### ============================================================
+
+### 3.1 No elevated action token — expect 401
+POST {{baseUrl}}/swap
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+
+{
+  "source_wallet_id": {{ngnWalletId}},
+  "destination_wallet_id": {{cnyWalletId}},
+  "amount_subunits": 50000
+}
+
+### 3.2 Malformed/garbage EAT — expect 401
+POST {{baseUrl}}/swap
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+X-Elevated-Action-Token: not-a-real-token
+
+{
+  "source_wallet_id": {{ngnWalletId}},
+  "destination_wallet_id": {{cnyWalletId}},
+  "amount_subunits": 50000
+}
+
+### 3.3 Replay a consumed EAT — expect 401
+### Run 2.1 then 2.2 once (consumes it), then re-run 2.2 UNCHANGED —
+### REST Client will reuse the same {{challenge.response.body...}} value
+### since 2.1 wasn't re-run. Expect 401, not a second successful swap.
+
+### 3.4 EAT bound to a different payload than what's sent — expect 422
+### Run 2.1 (binds to amount_subunits: 50000), then send THIS request
+### with a different amount — the hash won't match.
+POST {{baseUrl}}/swap
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+X-Elevated-Action-Token: {{challenge.response.body.elevated_action_token}}
+
+{
+  "source_wallet_id": {{ngnWalletId}},
+  "destination_wallet_id": {{cnyWalletId}},
+  "amount_subunits": 999999
+}
+
+### 3.5 Wrong TOTP code — expect 401
+POST {{baseUrl}}/2fa/challenge
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.token}}
+
+{
+  "totp_code": "000000",
+  "action": "swap",
+  "action_payload": {
+    "source_wallet_id": {{ngnWalletId}},
+    "destination_wallet_id": {{cnyWalletId}},
+    "amount_subunits": 50000
+  }
+}
+
+### ============================================================
+### 4. LEDGER
+### ============================================================
+
+### 4.1 View the NGN wallet ledger (owned by the authenticated user)
+GET {{baseUrl}}/ledger/{{ngnWalletId}}
+Authorization: Bearer {{login.response.body.token}}
+
+### 4.2 A wallet NOT owned by this user — expect 404 (never 403)
+GET {{baseUrl}}/ledger/1
+Authorization: Bearer {{login.response.body.token}}
+
+### ============================================================
+### 5. SETTLEMENT WEBHOOKS
+### ============================================================
+### HMAC-SHA256 over the RAW body — compute in PowerShell right before
+### sending, body must match byte-for-byte what's signed:
+###
+###   $body = '{"provider_reference":"http-test-001","status":"completed","wallet_id":<ngnWalletId>,"amount_subunits":25000,"currency":"NGN"}'
+###   $secret = '{{webhookSecret}}'
+###   $secretBytes = [System.Text.Encoding]::UTF8.GetBytes($secret)
+###   $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+###   $hmacObject = New-Object System.Security.Cryptography.HMACSHA256(,$secretBytes)
+###   $hmac = [System.BitConverter]::ToString($hmacObject.ComputeHash($bodyBytes)).Replace('-', '').ToLower()
+###   Write-Host $hmac
+
+@webhookSignature = REPLACE_WITH_COMPUTED_HMAC
+
+### 5.1 Valid webhook — credits the wallet
+POST {{baseUrl}}/webhooks/settlement
+Content-Type: application/json
+X-Settlement-Signature: {{webhookSignature}}
+
+{"provider_reference":"http-test-001","status":"completed","wallet_id":{{ngnWalletId}},"amount_subunits":25000,"currency":"NGN"}
+
+### 5.2 Exact replay (same body, same signature) — expect 200 again,
+### but NO second credit. Re-run 5.1 unchanged, then check 4.1's balance.
+
+### 5.3 Tampered signature — expect 401
+POST {{baseUrl}}/webhooks/settlement
+Content-Type: application/json
+X-Settlement-Signature: 0000000000000000000000000000000000000000000000000000000000000000
+
+{"provider_reference":"http-test-002","status":"completed","wallet_id":{{ngnWalletId}},"amount_subunits":25000,"currency":"NGN"}
+
+### 5.4 Missing signature — expect 401
+POST {{baseUrl}}/webhooks/settlement
+Content-Type: application/json
+
+{"provider_reference":"http-test-003","status":"completed","wallet_id":{{ngnWalletId}},"amount_subunits":25000,"currency":"NGN"}
+
+### 5.5a Out-of-order: COMPLETED first — compute a fresh HMAC for this exact body
+@webhookSignature5a = REPLACE_WITH_HMAC_FOR_THIS_BODY
+POST {{baseUrl}}/webhooks/settlement
+Content-Type: application/json
+X-Settlement-Signature: {{webhookSignature5a}}
+
+{"provider_reference":"http-test-004","status":"completed","wallet_id":{{ngnWalletId}},"amount_subunits":10000,"currency":"NGN"}
+
+### 5.5b then a stale INITIATED arrives after — must be a silent no-op,
+### not an error, and must not regress the recorded status. Fresh HMAC
+### needed since the body differs (different status value).
+@webhookSignature5b = REPLACE_WITH_HMAC_FOR_THIS_BODY
+POST {{baseUrl}}/webhooks/settlement
+Content-Type: application/json
+X-Settlement-Signature: {{webhookSignature5b}}
+
+{"provider_reference":"http-test-004","status":"initiated","wallet_id":{{ngnWalletId}},"amount_subunits":10000,"currency":"NGN"}

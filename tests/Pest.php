@@ -16,18 +16,18 @@ uses(TestCase::class, RefreshDatabase::class)->in('Feature/*.php');
  * DB_DATABASE, since phpunit.xml's <env> block overrides that value.
  */
 uses(TestCase::class)
-  ->beforeEach(function () {
-    config([
-      'database.default' => 'pgsql',
-      'database.connections.pgsql.database' => getenv('CONCURRENCY_DB_DATABASE') ?: 'tupay',
-      'database.connections.pgsql.host' => getenv('CONCURRENCY_DB_HOST') ?: '127.0.0.1',
-      'database.connections.pgsql.port' => getenv('CONCURRENCY_DB_PORT') ?: '5432',
-      'database.connections.pgsql.username' => getenv('CONCURRENCY_DB_USERNAME') ?: 'tupay',
-      'database.connections.pgsql.password' => getenv('CONCURRENCY_DB_PASSWORD') ?: 'tupay',
-    ]);
+    ->beforeEach(function () {
+        config([
+            'database.default' => 'pgsql',
+            'database.connections.pgsql.database' => getenv('CONCURRENCY_DB_DATABASE') ?: 'tupay',
+            'database.connections.pgsql.host' => getenv('CONCURRENCY_DB_HOST') ?: '127.0.0.1',
+            'database.connections.pgsql.port' => getenv('CONCURRENCY_DB_PORT') ?: '5432',
+            'database.connections.pgsql.username' => getenv('CONCURRENCY_DB_USERNAME') ?: 'tupay',
+            'database.connections.pgsql.password' => getenv('CONCURRENCY_DB_PASSWORD') ?: 'tupay',
+        ]);
 
-    DB::purge('pgsql');
-  })
-  ->in('Feature/Concurrency');
+        DB::purge('pgsql');
+    })
+    ->in('Feature/Concurrency');
 
 uses(TestCase::class)->in('Unit');

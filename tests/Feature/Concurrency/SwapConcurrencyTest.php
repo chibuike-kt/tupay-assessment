@@ -1,0 +1,111 @@
+<?php
+
+use App\Models\LedgerEntry;
+use App\Models\Swap;
+use App\Models\User;
+use GuzzleHttp\Client;
+use GuzzleHttp\Promise\Utils;
+use Illuminate\Support\Str;
+use PragmaRX\Google2FA\Google2FA;
+
+afterEach(function () {
+    if (isset($this->user)) {
+        $walletIds = $this->user->wallets()->pluck('id');
+
+        LedgerEntry::whereIn('wallet_id', $walletIds)->delete();
+        Swap::where('user_id', $this->user->id)->delete();
+        $this->user->wallets()->delete();
+        $this->user->delete();
+    }
+});
+
+it('allows exactly one of 10 concurrent swap requests to succeed, rejects the other 9, and keeps the ledger exact', function () {
+    $this->user = User::create([
+        'name' => 'Concurrency Stress Test User',
+        'email' => 'concurrency-stress-'.uniqid().'@tupay.dev',
+        'password' => 'password',
+    ]);
+
+    $source = $this->user->wallets()->create(['currency' => 'NGN']);
+    $destination = $this->user->wallets()->create(['currency' => 'CNY']);
+
+    // Funded for exactly ONE swap of this size — any second concurrent
+    // swap MUST fail, whether from the lock or from balance validation.
+    $swapAmount = 50000;
+    $source->ledgerEntries()->create([
+        'transaction_group_id' => Str::uuid(),
+        'direction' => 'credit',
+        'amount_subunits' => $swapAmount,
+        'currency' => 'NGN',
+        'description' => 'Concurrency stress test funding',
+    ]);
+
+    $token = $this->user->createToken('concurrency-stress')->plainTextToken;
+
+    $client = new Client(['base_uri' => 'http://localhost:8000', 'http_errors' => false]);
+
+    // Each request needs its OWN elevated action token — EATs are single-use
+    // by design, so one token could never let 10 requests even attempt this.
+    // We're deliberately testing the lock/balance race, not the EAT itself.
+    $totp = new Google2FA;
+    $secret = $totp->generateSecretKey();
+    $this->user->forceFill(['totp_secret' => $secret, 'totp_confirmed_at' => now()])->save();
+    $code = $totp->getCurrentOtp($secret);
+
+    $eats = [];
+    for ($i = 0; $i < 10; $i++) {
+        $challengeResponse = $client->post('/api/2fa/challenge', [
+            'headers' => ['Authorization' => "Bearer {$token}", 'Accept' => 'application/json'],
+            'json' => [
+                'totp_code' => $code,
+                'action' => 'swap',
+                'action_payload' => [
+                    'source_wallet_id' => $source->id,
+                    'destination_wallet_id' => $destination->id,
+                    'amount_subunits' => $swapAmount,
+                ],
+            ],
+        ]);
+
+        $body = json_decode((string) $challengeResponse->getBody(), true);
+        $eats[] = $body['elevated_action_token'] ?? null;
+    }
+
+    expect($eats)->each->not->toBeNull();
+
+    // Fire all 10 swap requests CONCURRENTLY — this is the actual test.
+    $promises = [];
+    foreach ($eats as $eat) {
+        $promises[] = $client->postAsync('/api/swap', [
+            'headers' => [
+                'Authorization' => "Bearer {$token}",
+                'X-Elevated-Action-Token' => $eat,
+                'Accept' => 'application/json',
+            ],
+            'json' => [
+                'source_wallet_id' => $source->id,
+                'destination_wallet_id' => $destination->id,
+                'amount_subunits' => $swapAmount,
+            ],
+        ]);
+    }
+
+    $responses = Utils::settle($promises)->wait();
+
+    $statusCodes = collect($responses)->map(function ($result) {
+        return $result['state'] === 'fulfilled' ? $result['value']->getStatusCode() : null;
+    });
+
+    $successCount = $statusCodes->filter(fn ($code) => $code === 201)->count();
+    $rejectedCount = $statusCodes->filter(fn ($code) => in_array($code, [409, 422], true))->count();
+
+    expect($successCount)->toBe(1);
+    expect($rejectedCount)->toBe(9);
+
+    // The real proof: the ledger is exact, no over-drafts, no double-credits.
+    $finalSourceBalance = $source->fresh()->balance();
+    $finalDestBalance = $destination->fresh()->balance();
+
+    expect($finalSourceBalance)->toBe(0); // fully spent by the one successful swap
+    expect($finalDestBalance)->toBeGreaterThan(0); // received real converted funds
+});

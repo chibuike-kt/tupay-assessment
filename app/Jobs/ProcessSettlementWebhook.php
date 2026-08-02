@@ -2,6 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Domain\Webhooks\SettlementCreditor;
+use App\Enums\WebhookStatus;
+use App\Models\SettlementWebhookEvent;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -19,10 +22,17 @@ class ProcessSettlementWebhook implements ShouldQueue
 
     public function __construct(private readonly int $webhookEventId) {}
 
-    public function handle(): void
+    public function handle(SettlementCreditor $creditor): void
     {
-        // Ledger crediting logic comes next — this is intentionally a stub
-        // for now so we can verify the processor's state machine in
-        // isolation first, same incremental approach as the rest of this session.
+        $event = SettlementWebhookEvent::findOrFail($this->webhookEventId);
+
+        // Larastan doesn't resolve the method-based casts() enum type here;
+        // verified via tinker that $event->status is always a real WebhookStatus.
+        /** @var WebhookStatus $status */
+        $status = $event->status;
+
+        if ($status === WebhookStatus::Completed) {
+            $creditor->credit($event);
+        }
     }
 }

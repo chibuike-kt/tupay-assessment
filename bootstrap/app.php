@@ -3,6 +3,7 @@
 use App\Domain\Security\Exceptions\InvalidElevatedActionTokenException;
 use App\Domain\Swap\Exceptions\InsufficientBalanceException;
 use App\Domain\Swap\Exceptions\InvalidWalletPairException;
+use App\Domain\Swap\Exceptions\RateProviderUnavailableException;
 use App\Domain\Swap\Exceptions\SwapLockContentionException;
 use App\Http\Middleware\RequireElevatedActionToken;
 use App\Http\Middleware\VerifyWebhookSignature;
@@ -39,4 +40,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(fn (InvalidWalletPairException $e) => response()->json([
             'message' => $e->getMessage(),
         ], 422));
+
+        $exceptions->render(fn (RateProviderUnavailableException $e) => response()->json([
+            'message' => $e->getMessage(),
+        ], 503));
     })->create();

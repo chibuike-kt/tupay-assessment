@@ -36,6 +36,25 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: tupay_testing
+      DB_USERNAME: tupay
+      DB_PASSWORD: tupay
+      REDIS_CLIENT: predis
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      EAT_SIGNING_KEY: ci-signing-key-not-for-production
+      SETTLEMENT_WEBHOOK_SECRET: ci-webhook-secret-not-for-production
+      RATE_PROVIDER_URL: http://127.0.0.1:8001/mock-rates
+      CONCURRENCY_DB_DATABASE: tupay_testing
+      CONCURRENCY_DB_HOST: 127.0.0.1
+      CONCURRENCY_DB_PORT: 5432
+      CONCURRENCY_DB_USERNAME: tupay
+      CONCURRENCY_DB_PASSWORD: tupay
+
     steps:
       - uses: actions/checkout@v4
 
@@ -53,22 +72,14 @@ jobs:
           restore-keys: composer-
 
       - run: composer install --no-interaction --prefer-dist --no-progress
-
       - run: cp .env.example .env
       - run: php artisan key:generate
 
       - name: Run migrations
         run: php artisan migrate --force
-        env:
-          DB_CONNECTION: pgsql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_DATABASE: tupay_testing
-          DB_USERNAME: tupay
-          DB_PASSWORD: tupay
-          REDIS_CLIENT: predis
-          REDIS_HOST: 127.0.0.1
-          REDIS_PORT: 6379
+
+      - name: Seed system accounts
+        run: php artisan db:seed --class=SystemAccountsSeeder --force
 
       - name: Pint
         run: vendor/bin/pint --test
@@ -76,16 +87,37 @@ jobs:
       - name: PHPStan (Larastan)
         run: vendor/bin/phpstan analyse --memory-limit=1G
 
-      - name: Pest
+      - name: Start mock rate server (port 8001)
+        run: |
+          nohup php artisan serve --port=8001 > mock-rate-server.log 2>&1 &
+          echo "Waiting for mock rate server..."
+          for i in $(seq 1 20); do
+            if curl -sf "http://127.0.0.1:8001/mock-rates?base=NGN&quote=CNY" > /dev/null; then
+              echo "Mock rate server is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Mock rate server failed to start:"
+          cat mock-rate-server.log
+          exit 1
+
+      - name: Start main app server (port 8000)
+        run: |
+          nohup php artisan serve --port=8000 > app-server.log 2>&1 &
+          echo "Waiting for app server..."
+          for i in $(seq 1 20); do
+            if curl -sf "http://127.0.0.1:8000/up" > /dev/null; then
+              echo "App server is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "App server failed to start:"
+          cat app-server.log
+          exit 1
+
+      - name: Pest (full suite, including live-server concurrency test)
         run: vendor/bin/pest --ci
         env:
-          DB_CONNECTION: pgsql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 5432
-          DB_DATABASE: tupay_testing
-          DB_USERNAME: tupay
-          DB_PASSWORD: tupay
-          REDIS_CLIENT: predis
-          REDIS_HOST: 127.0.0.1
-          REDIS_PORT: 6379
           QUEUE_CONNECTION: sync

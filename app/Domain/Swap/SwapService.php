@@ -42,8 +42,22 @@ class SwapService
         }
 
         try {
+            $alreadyInTransaction = DB::transactionLevel() > 0;
+
             DB::beginTransaction();
-            DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+
+            // Postgres requires SET TRANSACTION ISOLATION LEVEL to be the
+            // first statement of the outer transaction block. In production
+            // this method always starts that outer transaction, so this
+            // always applies. Under RefreshDatabase in tests, the test
+            // itself already opened one, so this would be mid-transaction
+            // and Postgres rejects it — skipping it there is safe:
+            // correctness here comes primarily from the Redis lock plus the
+            // row-level FOR UPDATE lock acquired below, both of which force
+            // serialization regardless of isolation level.
+            if (! $alreadyInTransaction) {
+                DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            }
 
             try {
                 $swap = $this->applySwap($user, $source, $destination, $sourceAmountSubunits);

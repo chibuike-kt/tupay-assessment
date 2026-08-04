@@ -98,7 +98,12 @@ it('allows exactly one of 10 concurrent swap requests to succeed, rejects the ot
 
     $successCount = $statusCodes->filter(fn ($code) => $code === 201)->count();
     $rejectedCount = $statusCodes->filter(fn ($code) => in_array($code, [409, 422], true))->count();
-
+    dump($statusCodes->toArray());
+    dump(collect($responses)->map(function ($result) {
+        return $result['state'] === 'fulfilled'
+            ? (string) $result['value']->getBody()
+            : ($result['reason']->getMessage() ?? 'unknown rejection');
+    })->toArray());
     expect($successCount)->toBe(1);
     expect($rejectedCount)->toBe(9);
 

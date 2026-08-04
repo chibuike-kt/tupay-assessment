@@ -136,6 +136,7 @@ jobs:
           name: debug-artifacts
           path: |
             concurrency-debug.json
+            storage/logs/laravel.log
             mock-rate-server.log
             app-server.log
           if-no-files-found: ignore

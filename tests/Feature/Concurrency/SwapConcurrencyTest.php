@@ -3,10 +3,17 @@
 use App\Models\LedgerEntry;
 use App\Models\Swap;
 use App\Models\User;
+use Database\Seeders\SystemAccountsSeeder;
 use GuzzleHttp\Client;
 use GuzzleHttp\Promise\Utils;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use PragmaRX\Google2FA\Google2FA;
+
+Artisan::call('db:seed', [
+    '--class' => SystemAccountsSeeder::class,
+    '--force' => true,
+]);
 
 afterEach(function () {
     if (isset($this->user)) {

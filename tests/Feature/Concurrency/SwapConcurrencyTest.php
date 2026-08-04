@@ -29,8 +29,6 @@ it('allows exactly one of 10 concurrent swap requests to succeed, rejects the ot
     $source = $this->user->wallets()->create(['currency' => 'NGN']);
     $destination = $this->user->wallets()->create(['currency' => 'CNY']);
 
-    // Funded for exactly ONE swap of this size — any second concurrent
-    // swap MUST fail, whether from the lock or from balance validation.
     $swapAmount = 50000;
     $source->ledgerEntries()->create([
         'transaction_group_id' => Str::uuid(),
@@ -44,9 +42,6 @@ it('allows exactly one of 10 concurrent swap requests to succeed, rejects the ot
 
     $client = new Client(['base_uri' => 'http://localhost:8000', 'http_errors' => false]);
 
-    // Each request needs its OWN elevated action token — EATs are single-use
-    // by design, so one token could never let 10 requests even attempt this.
-    // We're deliberately testing the lock/balance race, not the EAT itself.
     $totp = new Google2FA;
     $secret = $totp->generateSecretKey();
     $this->user->forceFill(['totp_secret' => $secret, 'totp_confirmed_at' => now()])->save();
@@ -71,9 +66,13 @@ it('allows exactly one of 10 concurrent swap requests to succeed, rejects the ot
         $eats[] = $body['elevated_action_token'] ?? null;
     }
 
+    file_put_contents(
+        base_path('concurrency-debug.json'),
+        json_encode(['challenge_eats' => $eats], JSON_PRETTY_PRINT)
+    );
+
     expect($eats)->each->not->toBeNull();
 
-    // Fire all 10 swap requests CONCURRENTLY — this is the actual test.
     $promises = [];
     foreach ($eats as $eat) {
         $promises[] = $client->postAsync('/api/swap', [
@@ -96,21 +95,27 @@ it('allows exactly one of 10 concurrent swap requests to succeed, rejects the ot
         return $result['state'] === 'fulfilled' ? $result['value']->getStatusCode() : null;
     });
 
+    file_put_contents(
+        base_path('concurrency-debug.json'),
+        json_encode([
+            'status_codes' => $statusCodes->toArray(),
+            'bodies' => collect($responses)->map(function ($result) {
+                return $result['state'] === 'fulfilled'
+                    ? (string) $result['value']->getBody()
+                    : ($result['reason']->getMessage() ?? 'unknown rejection');
+            })->toArray(),
+        ], JSON_PRETTY_PRINT)
+    );
+
     $successCount = $statusCodes->filter(fn ($code) => $code === 201)->count();
     $rejectedCount = $statusCodes->filter(fn ($code) => in_array($code, [409, 422], true))->count();
-    dump($statusCodes->toArray());
-    dump(collect($responses)->map(function ($result) {
-        return $result['state'] === 'fulfilled'
-            ? (string) $result['value']->getBody()
-            : ($result['reason']->getMessage() ?? 'unknown rejection');
-    })->toArray());
+
     expect($successCount)->toBe(1);
     expect($rejectedCount)->toBe(9);
 
-    // The real proof: the ledger is exact, no over-drafts, no double-credits.
     $finalSourceBalance = $source->fresh()->balance();
     $finalDestBalance = $destination->fresh()->balance();
 
-    expect($finalSourceBalance)->toBe(0); // fully spent by the one successful swap
-    expect($finalDestBalance)->toBeGreaterThan(0); // received real converted funds
+    expect($finalSourceBalance)->toBe(0);
+    expect($finalDestBalance)->toBeGreaterThan(0);
 });

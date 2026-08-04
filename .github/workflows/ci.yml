@@ -121,3 +121,14 @@ jobs:
         run: vendor/bin/pest --ci
         env:
           QUEUE_CONNECTION: sync
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts
+          path: |
+            concurrency-debug.json
+            mock-rate-server.log
+            app-server.log
+          if-no-files-found: ignore

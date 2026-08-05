@@ -10,11 +10,6 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use PragmaRX\Google2FA\Google2FA;
 
-Artisan::call('db:seed', [
-    '--class' => SystemAccountsSeeder::class,
-    '--force' => true,
-]);
-
 afterEach(function () {
     if (isset($this->user)) {
         $walletIds = $this->user->wallets()->pluck('id');
@@ -27,6 +22,11 @@ afterEach(function () {
 });
 
 it('allows exactly one of 10 concurrent swap requests to succeed, rejects the other 9, and keeps the ledger exact', function () {
+    Artisan::call('db:seed', [
+        '--class' => SystemAccountsSeeder::class,
+        '--force' => true,
+    ]);
+
     $this->user = User::create([
         'name' => 'Concurrency Stress Test User',
         'email' => 'concurrency-stress-'.uniqid().'@tupay.dev',

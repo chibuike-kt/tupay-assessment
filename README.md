@@ -51,6 +51,17 @@ curl http://localhost:8000/api/health
 
 ---
 
+## Continuous Integration
+
+Every push runs:
+
+- Laravel Pint
+- PHPStan
+- Pest
+- Live concurrency integration test
+
+---
+
 ## Architecture
 
 The codebase is organized around **domains, not framework conventions.** `app/Http` is deliberately thin — controllers do almost nothing beyond translating an HTTP request into a call on a domain service and translating the result back into a response. All real logic lives in `app/Domain`, grouped by bounded context:

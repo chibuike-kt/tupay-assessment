@@ -1,8 +1,10 @@
 <?php
 
+use Database\Seeders\SystemAccountsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
+use Tests\ConcurrencyTestCase;
 use Tests\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class)
@@ -33,17 +35,19 @@ uses(TestCase::class, RefreshDatabase::class)
  * dev's real REDIS_DB (0), separate from this file's DB 1, so there's
  * nothing of ours to clean up and nothing of dev's to protect from us.
  */
-uses(TestCase::class)
+uses(ConcurrencyTestCase::class)
     ->beforeEach(function () {
         config([
             'database.default' => 'pgsql',
-            'database.connections.pgsql.database' => getenv('CONCURRENCY_DB_DATABASE') ?: 'tupay',
-            'database.connections.pgsql.host' => getenv('CONCURRENCY_DB_HOST') ?: '127.0.0.1',
-            'database.connections.pgsql.port' => getenv('CONCURRENCY_DB_PORT') ?: '5432',
-            'database.connections.pgsql.username' => getenv('CONCURRENCY_DB_USERNAME') ?: 'tupay',
-            'database.connections.pgsql.password' => getenv('CONCURRENCY_DB_PASSWORD') ?: 'tupay',
+            'database.connections.pgsql.database' => env('CONCURRENCY_DB_DATABASE', 'tupay'),
+            'database.connections.pgsql.host' => env('CONCURRENCY_DB_HOST', '127.0.0.1'),
+            'database.connections.pgsql.port' => env('CONCURRENCY_DB_PORT', 5432),
+            'database.connections.pgsql.username' => env('CONCURRENCY_DB_USERNAME', 'tupay'),
+            'database.connections.pgsql.password' => env('CONCURRENCY_DB_PASSWORD', 'tupay'),
         ]);
 
         DB::purge('pgsql');
+
+        $this->seed(SystemAccountsSeeder::class);
     })
     ->in('Feature/Concurrency');

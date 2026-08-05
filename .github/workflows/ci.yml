@@ -117,7 +117,26 @@ jobs:
           cat app-server.log
           exit 1
 
+      - name: Debug - verify system wallets exist via live server DB connection
+        run: |
+          php artisan tinker --execute="
+            echo 'DB_DATABASE: ' . config('database.connections.pgsql.database') . PHP_EOL;
+            echo 'Wallet count: ' . App\Models\Wallet::count() . PHP_EOL;
+            echo 'System wallets: ' . App\Models\Wallet::whereNotNull('label')->count() . PHP_EOL;
+          "
       - name: Pest (full suite, including live-server concurrency test)
         run: vendor/bin/pest --ci
         env:
           QUEUE_CONNECTION: sync
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts
+          path: |
+            concurrency-debug.json
+            storage/logs/laravel.log
+            mock-rate-server.log
+            app-server.log
+          if-no-files-found: ignore

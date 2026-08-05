@@ -1,0 +1,38 @@
+{
+    "challenge_statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+    ],
+    "status_codes": [
+        201,
+        422,
+        422,
+        422,
+        422,
+        422,
+        422,
+        422,
+        422,
+        422
+    ],
+    "bodies": [
+        "{\"data\":{\"id\":\"27e1426d-0db5-4396-b91e-412272b9d2ef\",\"status\":\"completed\",\"source_wallet_id\":31,\"destination_wallet_id\":32,\"source_amount_subunits\":50000,\"destination_amount_subunits\":240,\"fee_subunits\":0,\"rate_applied\":\"0.00480288\",\"created_at\":\"2026-08-05T00:10:11+00:00\"}}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}",
+        "{\"message\":\"Source wallet does not have sufficient balance for this swap.\"}"
+    ]
+}
